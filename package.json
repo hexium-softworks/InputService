@@ -9,15 +9,16 @@
     "Input"
   ],
   "license": "MIT",
+  "packageManager": "pnpm@12.4.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hexium-softworks/InputService.git"
+  },
   "files": [
     "src",
     "default.project.json",
     "README.md"
   ],
-  "scripts": {
-    "preinstall": "npx only-allow pnpm",
-    "build": "echo \"No build step required; publishing Roblox/Luau source files.\""
-  },
   "contributors": [
     "HexedEthan"
   ],
