@@ -1,3 +1,6 @@
+packages:
+  - .
+
 allowBuilds:
   '@quenty/baseobject': true
   '@quenty/loader': true
