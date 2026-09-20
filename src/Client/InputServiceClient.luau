@@ -11,6 +11,7 @@
 local require = require(script.Parent.loader).load(script)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local Maid = require("Maid")
 local ServiceBag = require("ServiceBag")
@@ -26,9 +27,12 @@ type InputActionConfig = InputServiceTypes.InputActionConfig
 type InputBindingConfig = InputServiceTypes.InputBindingConfig
 type InputActionState = InputServiceTypes.InputActionState
 type ActionSignalBundle = InputServiceTypes.ActionSignalBundle
+type BindingDisplayInfo = InputServiceTypes.BindingDisplayInfo
 
 local InputServiceClient = {}
 InputServiceClient.ServiceName = "InputServiceClient"
+
+local BINDING_DISPLAY_PROPERTIES = { "DisplayName", "DisplayImage", "KeyCode", "UIButton" }
 
 export type InputServiceClient = typeof(setmetatable(
 	{} :: {
@@ -52,6 +56,60 @@ local function findRootFolder(): Folder?
 	)
 
 	return child :: Folder
+end
+
+local function getContentNone(): any?
+	local ok, value = pcall(function()
+		return Content.none
+	end)
+
+	if ok then
+		return value
+	end
+
+	return nil
+end
+
+local function contentFromUri(uri: string): any?
+	local ok, value = pcall(function()
+		return Content.fromUri(uri)
+	end)
+
+	if ok then
+		return value
+	end
+
+	return nil
+end
+
+local function isEmptyKeyCode(keyCode: any): boolean
+	if typeof(keyCode) ~= "EnumItem" then
+		return true
+	end
+
+	return keyCode.Name == "Unknown" or keyCode.Name == "None"
+end
+
+local function hasDisplayImage(displayImage: any): boolean
+	if displayImage == nil then
+		return false
+	elseif typeof(displayImage) == "string" then
+		return displayImage ~= ""
+	end
+
+	local ok, sourceType = pcall(function()
+		return displayImage.SourceType
+	end)
+
+	if not ok then
+		return true
+	end
+
+	local noneOk, noneSourceType = pcall(function()
+		return Enum.ContentSourceType.None
+	end)
+
+	return not noneOk or sourceType ~= noneSourceType
 end
 
 local function createActionSignalBundle(action: InputAction): ActionSignalBundle
@@ -238,6 +296,163 @@ function InputServiceClient.GetBinding(
 	end
 
 	return InputServiceInstanceUtils.getBinding(action, bindingName)
+end
+
+function InputServiceClient.GetPreferredBinding(
+	self: InputServiceClient,
+	contextName: string,
+	actionName: string
+): InputBinding?
+	local action = self:GetAction(contextName, actionName)
+	assert(action, string.format("InputAction %q.%q does not exist", contextName, actionName))
+
+	return action.PreferredBinding
+end
+
+function InputServiceClient.GetDisplayInfoForBinding(binding: InputBinding?): BindingDisplayInfo
+	local imageContent = getContentNone()
+	local info: BindingDisplayInfo = {
+		Binding = binding,
+		Text = "",
+		Image = "",
+		ImageContent = imageContent,
+		HasText = false,
+		HasImage = false,
+		TextSource = "None",
+		ImageSource = "None",
+	}
+
+	if not binding then
+		return info
+	end
+
+	if binding.DisplayName ~= "" then
+		info.Text = binding.DisplayName
+		info.HasText = true
+		info.TextSource = "DisplayName"
+	elseif not isEmptyKeyCode(binding.KeyCode) then
+		local keyText = UserInputService:GetStringForKeyCode(binding.KeyCode)
+		info.Text = if keyText ~= "" then keyText else binding.KeyCode.Name
+		info.HasText = info.Text ~= ""
+		info.TextSource = "KeyCode"
+	elseif binding.UIButton then
+		info.Text = binding.UIButton.Name
+		info.HasText = info.Text ~= ""
+		info.TextSource = "UIButton"
+	end
+
+	if hasDisplayImage(binding.DisplayImage) then
+		info.ImageContent = binding.DisplayImage
+		info.HasImage = true
+		info.ImageSource = "DisplayImage"
+	elseif not isEmptyKeyCode(binding.KeyCode) then
+		local keyImage = UserInputService:GetImageForKeyCode(binding.KeyCode)
+		if keyImage ~= "" then
+			info.Image = keyImage
+			info.ImageContent = contentFromUri(keyImage)
+			info.HasImage = true
+			info.ImageSource = "KeyCode"
+		end
+	end
+
+	return info
+end
+
+function InputServiceClient.GetBindingDisplayInfo(
+	self: InputServiceClient,
+	contextName: string,
+	actionName: string
+): BindingDisplayInfo
+	return InputServiceClient.GetDisplayInfoForBinding(self:GetPreferredBinding(contextName, actionName))
+end
+
+function InputServiceClient.BindBindingDisplayChanged(
+	self: InputServiceClient,
+	contextName: string,
+	actionName: string,
+	callback: (BindingDisplayInfo) -> (),
+	fireImmediately: boolean?
+): Maid.Maid
+	assert(typeof(callback) == "function", "Callback must be a function")
+
+	local maid = Maid.new()
+	local bindingMaid = Maid.new()
+	maid:GiveTask(bindingMaid)
+
+	local function fire()
+		callback(self:GetBindingDisplayInfo(contextName, actionName))
+	end
+
+	local function connectBindingProperties(shouldFire: boolean)
+		bindingMaid:DoCleaning()
+
+		local binding = self:GetPreferredBinding(contextName, actionName)
+		if binding then
+			for _, propertyName in BINDING_DISPLAY_PROPERTIES do
+				bindingMaid:GiveTask(binding:GetPropertyChangedSignal(propertyName):Connect(fire))
+			end
+		end
+
+		if shouldFire then
+			fire()
+		end
+	end
+
+	maid:GiveTask(self:GetActionSignals(contextName, actionName).PreferredBindingChanged:Connect(function()
+		connectBindingProperties(true)
+	end))
+
+	connectBindingProperties(fireImmediately ~= false)
+
+	return maid
+end
+
+function InputServiceClient.CreateActionLabel(
+	self: InputServiceClient,
+	contextName: string,
+	actionName: string,
+	parentOrProperties: any?,
+	properties: { [string]: any }?
+): any
+	local action = self:GetAction(contextName, actionName)
+	assert(action, string.format("InputAction %q.%q does not exist", contextName, actionName))
+
+	local parent: Instance? = nil
+	local labelProperties = properties
+
+	if typeof(parentOrProperties) == "Instance" then
+		parent = parentOrProperties
+	elseif typeof(parentOrProperties) == "table" and labelProperties == nil then
+		labelProperties = parentOrProperties
+	elseif parentOrProperties ~= nil then
+		error("Parent must be an Instance or properties table", 2)
+	end
+
+	local ok, labelOrError = pcall(Instance.new, "InputActionLabel")
+	assert(ok, string.format("InputActionLabel is not available in this Roblox runtime: %s", tostring(labelOrError)))
+
+	local label = labelOrError :: any
+	label.InputAction = action
+
+	if labelProperties then
+		for propertyName, value in labelProperties do
+			assert(typeof(propertyName) == "string", "InputActionLabel property names must be strings")
+			assert(propertyName ~= "InputAction", "InputActionLabel.InputAction is controlled by InputServiceClient")
+
+			if propertyName == "Parent" then
+				assert(typeof(value) == "Instance", "InputActionLabel.Parent must be an Instance")
+				parent = value
+			else
+				label[propertyName] = value
+			end
+		end
+	end
+
+	if parent then
+		label.Parent = parent
+	end
+
+	return label
 end
 
 function InputServiceClient.GetActionSignals(

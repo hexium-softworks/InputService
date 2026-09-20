@@ -297,6 +297,64 @@ inputServiceClient:SetActionEnabled("Gameplay", "Sprint", false)
 inputServiceClient:SetContextEnabled("Menu", true)
 ```
 
+## Displaying Bindings
+
+For ordinary hint UI, use Roblox's recommended `InputActionLabel`. It resolves
+the current action text/image for the player's active device and updates when
+Roblox changes the preferred binding.
+
+```lua
+local label = inputServiceClient:CreateActionLabel("Gameplay", "Sprint", playerGui.Hints, {
+	Name = "SprintHint",
+	Size = UDim2.fromOffset(160, 32),
+	BackgroundTransparency = 1,
+	TextColor3 = Color3.new(1, 1, 1),
+	TextSize = 18,
+})
+```
+
+For composited layouts, conditional visibility, custom animation, or Blend rows,
+use `PreferredBinding` through the display-info helpers:
+
+```lua
+local displayMaid = inputServiceClient:BindBindingDisplayChanged(
+	"Gameplay",
+	"Sprint",
+	function(info)
+		textLabel.Text = info.Text
+		textLabel.Visible = info.HasText
+
+		if info.HasImage and info.ImageContent then
+			imageLabel.ImageContent = info.ImageContent
+			imageLabel.Visible = true
+		else
+			imageLabel.Visible = false
+		end
+	end
+)
+
+maid:GiveTask(displayMaid)
+```
+
+`GetBindingDisplayInfo("Gameplay", "Sprint")` returns the same shape once:
+
+```lua
+{
+	Binding = InputBinding?,
+	Text = "Left Shift",
+	Image = "rbxasset://...",
+	ImageContent = Content?,
+	HasText = true,
+	HasImage = true,
+	TextSource = "DisplayName" | "KeyCode" | "UIButton" | "None",
+	ImageSource = "DisplayImage" | "KeyCode" | "None",
+}
+```
+
+The helper prefers `InputBinding.DisplayName` and `InputBinding.DisplayImage`,
+then falls back to `UserInputService:GetStringForKeyCode()` and
+`UserInputService:GetImageForKeyCode()` when the preferred binding has a key.
+
 ## Local Contexts And UI Bindings
 
 Clients can define local-only contexts. These are useful for UI, tutorials,
@@ -707,6 +765,11 @@ Client `InputServiceClient`:
 | `ConfigureBinding(contextName, actionName, bindingConfig)` | Creates or updates a binding under an existing action. |
 | `GetAction(contextName, actionName)` | Returns an `InputAction?`. |
 | `GetBinding(contextName, actionName, bindingName)` | Returns an `InputBinding?`. |
+| `GetPreferredBinding(contextName, actionName)` | Returns the action's current read-only `PreferredBinding`. |
+| `GetDisplayInfoForBinding(binding)` | Resolves text/image display metadata for an `InputBinding?`. |
+| `GetBindingDisplayInfo(contextName, actionName)` | Resolves display metadata from the action's `PreferredBinding`. |
+| `BindBindingDisplayChanged(contextName, actionName, callback, fireImmediately?)` | Observes preferred binding and display override changes for custom UI. |
+| `CreateActionLabel(contextName, actionName, parentOrProperties?, properties?)` | Creates an `InputActionLabel` wired to an action. |
 | `GetActionSignals(contextName, actionName)` | Returns cached pressed, released, state, enabled, and preferred-binding signals. |
 | `BindPressed(contextName, actionName, callback)` | Connects to an action's pressed signal. |
 | `BindReleased(contextName, actionName, callback)` | Connects to an action's released signal. |

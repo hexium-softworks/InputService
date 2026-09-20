@@ -9,6 +9,17 @@ local InputServiceTypes = {}
 
 export type InputActionState = boolean | number | Vector2 | Vector3
 
+export type BindingDisplayInfo = {
+	Binding: InputBinding?,
+	Text: string,
+	Image: string,
+	ImageContent: any?,
+	HasText: boolean,
+	HasImage: boolean,
+	TextSource: string,
+	ImageSource: string,
+}
+
 export type InputBindingConfig = {
 	Name: string,
 	Type: Enum.InputBindingType?,
