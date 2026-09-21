@@ -18,6 +18,7 @@ local ServiceBag = require("ServiceBag")
 local Signal = require("Signal")
 
 local InputServiceConstants = require("InputServiceConstants")
+local InputServiceGestureUtils = require("InputServiceGestureUtils")
 local InputServiceInstanceUtils = require("InputServiceInstanceUtils")
 local InputServiceTypes = require("InputServiceTypes")
 
@@ -27,7 +28,10 @@ type InputActionConfig = InputServiceTypes.InputActionConfig
 type InputBindingConfig = InputServiceTypes.InputBindingConfig
 type InputActionState = InputServiceTypes.InputActionState
 type ActionSignalBundle = InputServiceTypes.ActionSignalBundle
+type ActionSequenceOptions = InputServiceTypes.ActionSequenceOptions
 type BindingDisplayInfo = InputServiceTypes.BindingDisplayInfo
+type InputActionRef = InputServiceTypes.InputActionRef
+type MultiPressOptions = InputServiceTypes.MultiPressOptions
 
 local InputServiceClient = {}
 InputServiceClient.ServiceName = "InputServiceClient"
@@ -510,6 +514,52 @@ function InputServiceClient.BindStateChanged(
 	assert(typeof(callback) == "function", "Callback must be a function")
 
 	return self:GetActionSignals(contextName, actionName).StateChanged:Connect(callback)
+end
+
+function InputServiceClient.BindMultiPressed(
+	self: InputServiceClient,
+	contextName: string,
+	actionName: string,
+	options: MultiPressOptions?,
+	callback: () -> ()
+): Maid.Maid
+	assert(typeof(callback) == "function", "Callback must be a function")
+
+	local maid = Maid.new()
+	local tracker = InputServiceGestureUtils.createMultiPressTracker(options, callback)
+
+	maid:GiveTask(self:BindPressed(contextName, actionName, function()
+		tracker(os.clock())
+	end))
+
+	return maid
+end
+
+function InputServiceClient.BindActionSequence(
+	self: InputServiceClient,
+	sequence: { InputActionRef },
+	options: ActionSequenceOptions?,
+	callback: () -> ()
+): Maid.Maid
+	assert(typeof(callback) == "function", "Callback must be a function")
+	InputServiceGestureUtils.validateActionSequence(sequence)
+
+	local maid = Maid.new()
+	local tracker = InputServiceGestureUtils.createActionSequenceTracker(sequence, options, callback)
+	local connectedActions: { [string]: true } = {}
+
+	for _, actionRef in sequence do
+		local actionKey = string.format("%s:%s", actionRef.ContextName, actionRef.ActionName)
+		if not connectedActions[actionKey] then
+			connectedActions[actionKey] = true
+
+			maid:GiveTask(self:BindPressed(actionRef.ContextName, actionRef.ActionName, function()
+				tracker(actionRef.ContextName, actionRef.ActionName, os.clock())
+			end))
+		end
+	end
+
+	return maid
 end
 
 function InputServiceClient.SetContextEnabled(self: InputServiceClient, contextName: string, enabled: boolean): ()

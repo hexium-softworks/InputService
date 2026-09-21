@@ -150,5 +150,80 @@ describe("InputServiceClient", function()
 				end
 			end)
 		end
+
+		it("wires multi-press helpers through action signals", function()
+			local existingRoot = ReplicatedStorage:FindFirstChild(InputServiceConstants.ROOT_FOLDER_NAME)
+			if existingRoot then
+				existingRoot:Destroy()
+			end
+
+			local service = newClient()
+			service:DefineLocalContext({
+				Name = "SpecContext",
+				Actions = {
+					{ Name = "SpecAction" },
+				},
+			})
+
+			local fireCount = 0
+			local maid = service:BindMultiPressed("SpecContext", "SpecAction", {
+				WindowSeconds = 1,
+			}, function()
+				fireCount += 1
+			end)
+
+			local signals = service:GetActionSignals("SpecContext", "SpecAction")
+			signals.Pressed:Fire()
+			signals.Pressed:Fire()
+
+			expect(fireCount).toEqual(1)
+
+			maid:DoCleaning()
+			service:Destroy()
+
+			local root = ReplicatedStorage:FindFirstChild(InputServiceConstants.ROOT_FOLDER_NAME)
+			if root then
+				root:Destroy()
+			end
+		end)
+
+		it("wires action sequence helpers through action signals", function()
+			local existingRoot = ReplicatedStorage:FindFirstChild(InputServiceConstants.ROOT_FOLDER_NAME)
+			if existingRoot then
+				existingRoot:Destroy()
+			end
+
+			local service = newClient()
+			service:DefineLocalContext({
+				Name = "SpecContext",
+				Actions = {
+					{ Name = "First" },
+					{ Name = "Second" },
+				},
+			})
+
+			local fireCount = 0
+			local maid = service:BindActionSequence({
+				{ ContextName = "SpecContext", ActionName = "First" },
+				{ ContextName = "SpecContext", ActionName = "Second" },
+			}, {
+				WindowSeconds = 1,
+			}, function()
+				fireCount += 1
+			end)
+
+			service:GetActionSignals("SpecContext", "First").Pressed:Fire()
+			service:GetActionSignals("SpecContext", "Second").Pressed:Fire()
+
+			expect(fireCount).toEqual(1)
+
+			maid:DoCleaning()
+			service:Destroy()
+
+			local root = ReplicatedStorage:FindFirstChild(InputServiceConstants.ROOT_FOLDER_NAME)
+			if root then
+				root:Destroy()
+			end
+		end)
 	end
 end)

@@ -243,6 +243,137 @@ inputService:RemoveAction("Gameplay", "Interact")
 inputService:RemoveContext("Vehicle")
 ```
 
+## Binding Patterns
+
+Prefer native Input Action System bindings whenever Roblox can express the
+shape. One `InputAction` can have many child `InputBinding` instances, so a
+single action can support keyboard, mouse, gamepad, touch, and alternate inputs
+without adding more actions or custom input listeners.
+
+```lua
+inputService:RegisterContext({
+	Name = "Gameplay",
+	Enabled = true,
+	Priority = 2000,
+	Actions = {
+		{
+			Name = "OpenMap",
+			DisplayName = "Map",
+			Type = Enum.InputActionType.Bool,
+			Bindings = {
+				{
+					Name = "KeyboardM",
+					KeyCode = Enum.KeyCode.M,
+					DisplayName = "M",
+				},
+				{
+					Name = "KeyboardTab",
+					KeyCode = Enum.KeyCode.Tab,
+					DisplayName = "Tab",
+				},
+				{
+					Name = "Gamepad",
+					KeyCode = Enum.KeyCode.ButtonSelect,
+					DisplayName = "Select",
+				},
+			},
+		},
+	},
+})
+```
+
+Touch `UIButton` bindings are usually client-local because the button lives in a
+player's `PlayerGui`:
+
+```lua
+inputServiceClient:ConfigureBinding("Gameplay", "OpenMap", {
+	Name = "Touch",
+	UIButton = playerGui.Hud.MapButton,
+	DisplayName = "Map",
+})
+```
+
+For "two keys at the same time" style input, use native binding modifiers before
+adding script. This keeps display labels, rebinding, and device switching inside
+Roblox's IAS model:
+
+```lua
+inputService:ConfigureBinding("Gameplay", "OpenMap", {
+	Name = "CtrlM",
+	KeyCode = Enum.KeyCode.M,
+	PrimaryModifier = Enum.KeyCode.LeftControl,
+	DisplayName = "Ctrl + M",
+})
+
+inputService:ConfigureBinding("Gameplay", "Interact", {
+	Name = "ShiftE",
+	KeyCode = Enum.KeyCode.E,
+	PrimaryModifier = Enum.KeyCode.LeftShift,
+	DisplayName = "Shift + E",
+})
+
+inputService:ConfigureBinding("Gameplay", "Ping", {
+	Name = "GamepadCombo",
+	KeyCode = Enum.KeyCode.ButtonR1,
+	PrimaryModifier = Enum.KeyCode.ButtonL1,
+	DisplayName = "L1 + R1",
+})
+```
+
+Device-specific patterns:
+
+- PC keyboard/mouse: use `KeyCode` for keys, mouse buttons, and modifier combos.
+- Gamepad: use `KeyCode` for face buttons, shoulders, triggers, thumbstick
+  buttons, and analog thresholds.
+- Mobile/touch: bind `UIButton` to on-screen buttons inside player UI.
+- Directional movement: use `Direction1D`, `Direction2D`, or `Direction3D`
+  actions with `Up`, `Down`, `Left`, `Right`, `Forward`, and `Backward`.
+- Analog triggers: use `PressedThreshold` and `ReleasedThreshold` so bool actions
+  feel stable instead of flickering around a boundary.
+- Micro gamepad: keep bindings simple and expose fewer actions at once; use
+  contexts to swap between gameplay, menus, vehicles, and tools.
+
+```lua
+inputService:ConfigureAction("Gameplay", {
+	Name = "Aim",
+	DisplayName = "Aim",
+	Type = Enum.InputActionType.Bool,
+	Bindings = {
+		{
+			Name = "Mouse",
+			KeyCode = Enum.KeyCode.MouseRightButton,
+		},
+		{
+			Name = "GamepadTrigger",
+			KeyCode = Enum.KeyCode.ButtonL2,
+			PressedThreshold = 0.55,
+			ReleasedThreshold = 0.35,
+		},
+	},
+})
+
+inputService:ConfigureAction("Gameplay", {
+	Name = "Move",
+	DisplayName = "Move",
+	Type = Enum.InputActionType.Direction2D,
+	Bindings = {
+		{
+			Name = "Wasd",
+			Up = Enum.KeyCode.W,
+			Down = Enum.KeyCode.S,
+			Left = Enum.KeyCode.A,
+			Right = Enum.KeyCode.D,
+			ClampMagnitudeToOne = true,
+		},
+		{
+			Name = "LeftThumbstick",
+			KeyCode = Enum.KeyCode.Thumbstick1,
+			ClampMagnitudeToOne = true,
+		},
+	},
+})
+```
+
 ## Client Usage
 
 Read shared contexts and bind to action signals:
@@ -296,6 +427,73 @@ Toggle local action state:
 inputServiceClient:SetActionEnabled("Gameplay", "Sprint", false)
 inputServiceClient:SetContextEnabled("Menu", true)
 ```
+
+## Temporal Gestures
+
+Roblox IAS covers bindings, modifiers, contexts, and action state. It does not
+try to model timing patterns such as "press M twice within one second" or
+"press Dash, then Jump." For those cases, InputServiceClient includes small
+event-driven helpers that listen to existing `Pressed` signals. They do not use
+polling, heartbeat loops, `UserInputService` key-state tracking, remotes, or
+server authority.
+
+Double press:
+
+```lua
+local doubleMapMaid = inputServiceClient:BindMultiPressed("Gameplay", "OpenMap", {
+	PressCount = 2,
+	WindowSeconds = 1,
+	CooldownSeconds = 0.5,
+}, function()
+	mapController:ToggleMap()
+end)
+
+maid:GiveTask(doubleMapMaid)
+```
+
+Triple press:
+
+```lua
+maid:GiveTask(inputServiceClient:BindMultiPressed("Debug", "ToggleConsole", {
+	PressCount = 3,
+	WindowSeconds = 1.25,
+	CooldownSeconds = 2,
+}, function()
+	debugConsole:SetVisible(not debugConsole:IsVisible())
+end))
+```
+
+Ordered sequence:
+
+```lua
+maid:GiveTask(inputServiceClient:BindActionSequence({
+	{ ContextName = "Gameplay", ActionName = "Dash" },
+	{ ContextName = "Gameplay", ActionName = "Jump" },
+}, {
+	WindowSeconds = 0.75,
+	CooldownSeconds = 1.5,
+	ResetOnWrongAction = true,
+}, function()
+	abilityController:TryAirDash()
+end))
+```
+
+Repeated same-action sequence:
+
+```lua
+maid:GiveTask(inputServiceClient:BindActionSequence({
+	{ ContextName = "Gameplay", ActionName = "OpenMap" },
+	{ ContextName = "Gameplay", ActionName = "OpenMap" },
+}, {
+	WindowSeconds = 1,
+}, function()
+	mapController:ToggleExpandedMap()
+end))
+```
+
+Use these helpers for client UX and intent only. If a gesture triggers gameplay,
+send the resulting intent through your game's normal server-validated gameplay
+path.
 
 ## Displaying Bindings
 
@@ -733,6 +931,17 @@ Binding fields:
 | `Forward` | `Enum.KeyCode?` | Forward direction key for 3D actions. |
 | `Backward` | `Enum.KeyCode?` | Backward direction key for 3D actions. |
 
+Gesture option fields:
+
+| Type | Field | Notes |
+| --- | --- | --- |
+| `MultiPressOptions` | `PressCount` | Number of presses required. Defaults to `2`; minimum `2`. |
+| `MultiPressOptions` | `WindowSeconds` | Time window for the presses. Defaults to `1`. |
+| `MultiPressOptions` | `CooldownSeconds` | Minimum time between callback fires. Defaults to `0`. |
+| `ActionSequenceOptions` | `WindowSeconds` | Time window for the whole sequence. Defaults to `1`. |
+| `ActionSequenceOptions` | `CooldownSeconds` | Minimum time between callback fires. Defaults to `0`. |
+| `ActionSequenceOptions` | `ResetOnWrongAction` | Whether a wrong action resets progress. Defaults to `true`. |
+
 ## API Reference
 
 Server `InputService`:
@@ -774,6 +983,8 @@ Client `InputServiceClient`:
 | `BindPressed(contextName, actionName, callback)` | Connects to an action's pressed signal. |
 | `BindReleased(contextName, actionName, callback)` | Connects to an action's released signal. |
 | `BindStateChanged(contextName, actionName, callback)` | Connects to an action's state changed signal. |
+| `BindMultiPressed(contextName, actionName, options, callback)` | Connects to double/triple press-style gestures and returns a `Maid`. |
+| `BindActionSequence(sequence, options, callback)` | Connects to ordered action sequences and returns a `Maid`. |
 | `SetContextEnabled(contextName, enabled)` | Enables or disables a context locally. |
 | `SetActionEnabled(contextName, actionName, enabled)` | Enables or disables an action locally. |
 | `FireBinding(contextName, actionName, bindingName, state)` | Fires a scriptable binding with `boolean`, `number`, `Vector2`, or `Vector3` state. |

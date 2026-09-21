@@ -20,6 +20,23 @@ export type BindingDisplayInfo = {
 	ImageSource: string,
 }
 
+export type InputActionRef = {
+	ContextName: string,
+	ActionName: string,
+}
+
+export type MultiPressOptions = {
+	PressCount: number?,
+	WindowSeconds: number?,
+	CooldownSeconds: number?,
+}
+
+export type ActionSequenceOptions = {
+	WindowSeconds: number?,
+	CooldownSeconds: number?,
+	ResetOnWrongAction: boolean?,
+}
+
 export type InputBindingConfig = {
 	Name: string,
 	Type: Enum.InputBindingType?,
